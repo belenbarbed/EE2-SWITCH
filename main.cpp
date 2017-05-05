@@ -146,9 +146,9 @@ void tout() {
         // calculate the frequency
         sfreq[i] = (scount[i]*1000)/SW_PERIOD;
         // check if buttons are pressed
-        if(sfreq[i] < THOLD_ON) {
+        if((son[i]==0) && (sfreq[i] < THOLD_ON)) {
             son[i] = 1;
-        } else {
+        } else if ((son[i]==1) && (sfreq[i] > THOLD_OFF)) {
             son[i] = 0;
         }
     }
