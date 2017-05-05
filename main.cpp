@@ -11,8 +11,8 @@
 #define SW_PERIOD 20000 
 
 // Freq threshold for buttons
-#define THOLD_ON 70
-#define THOLD_OFF 74
+#define THOLD_ON 66
+#define THOLD_OFF 68
 
 // Display interface pin definitions
 #define D_MOSI_PIN p5
@@ -39,6 +39,9 @@ void sedge2();
 void sedge3();
 
 void tout();
+
+// Print UI
+void printUI(Adafruit_SSD1306_Spi& gOled, uint16_t state);
 
 // Output for the alive LED
 DigitalOut alive(LED1);
@@ -68,7 +71,7 @@ Adafruit_SSD1306_Spi gOled1(gSpi,D_DC_PIN,D_RST_PIN,D_CS_PIN,64,128); //SPI,DC,R
 
 int main() { 
     // Initialisation
-    gOled1.setRotation(0); //Set display rotation
+    gOled1.setRotation(2); //Set display rotation
     gOled1.clearDisplay();
     
     // Attach switch oscillator counter ISR to the switch input instance for a rising edge
@@ -94,13 +97,15 @@ int main() {
             
             for(int i = 0; i < 4; i++) {
                 // Write the SW0 osciallor count as kHz
-                gOled1.printf("\nSW%01u: %02ukHz", i, sfreq[i]);
+                gOled1.printf("SW%01u: %02ukHz", i, sfreq[i]);
                 if(son[i]){
-                    gOled1.printf(" - ON ");
+                    gOled1.printf(" - ON \n");
                 } else {
-                    gOled1.printf(" - OFF");
+                    gOled1.printf(" - OFF\n");
                 }
             }
+            
+            printUI(gOled1, 0);
             
             // Copy the display buffer to the display
             gOled1.display();
@@ -113,6 +118,15 @@ int main() {
     }
 }
 
+void printUI(Adafruit_SSD1306_Spi& gOled, uint16_t state){
+    gOled.setTextCursor(0,56);
+    if (state){
+        gOled.printf(">    ^    CNF    BCK");
+    }
+    else {
+        gOled.printf("<    >    SEL");
+    }
+}
 
 // Interrupt Service Routine for rising edge on the switch oscillator input
 void sedge0() {
