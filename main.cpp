@@ -10,6 +10,10 @@
 //Sampling period for the switch oscillator (us)
 #define SW_PERIOD 20000 
 
+// Freq threshold for buttons
+#define THOLD_ON 70
+#define THOLD_OFF 74
+
 //Display interface pin definitions
 #define D_MOSI_PIN p5
 #define D_CLK_PIN p7
@@ -49,19 +53,12 @@ InterruptIn swin3(SW_PIN3);
 Ticker swtimer;
 
 //Registers for the switch counter, switch counter latch register and update flag
-volatile uint16_t scounter0=0;
-volatile uint16_t scount0=0;
+volatile uint16_t scounter[4] = {0};
+volatile uint16_t scount[4] = {0};
+volatile uint16_t sfreq[4] = {0};
+volatile bool son[4] = {0};
 
-volatile uint16_t scounter1=0;
-volatile uint16_t scount1=0;
-
-volatile uint16_t scounter2=0;
-volatile uint16_t scount2=0;
-
-volatile uint16_t scounter3=0;
-volatile uint16_t scount3=0;
-
-volatile uint16_t update=0;
+volatile uint16_t update = 0;
 
 //Initialise SPI instance for communication with the display
 SPIPreInit gSpi(D_MOSI_PIN,NC,D_CLK_PIN); //MOSI,MISO,CLK
@@ -72,6 +69,7 @@ Adafruit_SSD1306_Spi gOled1(gSpi,D_DC_PIN,D_RST_PIN,D_CS_PIN,64,128); //SPI,DC,R
 int main() { 
     //Initialisation
     gOled1.setRotation(0); //Set display rotation
+    gOled1.clearDisplay();
     
     //Attach switch oscillator counter ISR to the switch input instance for a rising edge
     swin0.rise(&sedge0);
@@ -92,22 +90,12 @@ int main() {
         if (update) {
             //Clear the update flag
             update = 0;
-            
-            //Write the SW0 osciallor count as kHz
             gOled1.setTextCursor(0,0);
-            gOled1.printf("\n%05u  ",(scount0/20));
             
-            //Write the SW1 osciallor count as kHz
-            //gOled1.setTextCursor(5,0);
-            gOled1.printf("\n%05u  ",(scount1/20));
-            
-            //Write the SW2 osciallor count as kHz
-            //gOled1.setTextCursor(10,0);
-            gOled1.printf("\n%05u  ",(scount2/20));
-            
-            //Write the SW3 osciallor count as kHz
-            //gOled1.setTextCursor(15,0);
-            gOled1.printf("\n%05u  ",(scount3/20));
+            for(int i = 0; i < 4; i++) {
+                //Write the SW0 osciallor count as kHz
+                gOled1.printf("\nSW%01u: %02ukHz", i, sfreq[i]);
+            }
             
             //Copy the display buffer to the display
             gOled1.display();
@@ -124,37 +112,42 @@ int main() {
 //Interrupt Service Routine for rising edge on the switch oscillator input
 void sedge0() {
     //Increment the edge counter
-    scounter0++;    
+    scounter[0]++;    
 }
 
 void sedge1() {
     //Increment the edge counter
-    scounter1++;    
+    scounter[1]++;    
 }
 
 void sedge2() {
     //Increment the edge counter
-    scounter2++;    
+    scounter[2]++;    
 }
 
 void sedge3() {
     //Increment the edge counter
-    scounter3++;    
+    scounter[3]++;    
 }
 
 //Interrupt Service Routine for the switch sampling timer
 void tout() {
-    //Read the edge counter into the output register
-    scount0 = scounter0;
-    scount1 = scounter1;
-    scount2 = scounter2;
-    scount3 = scounter3;
-    //Reset the edge counter
-    scounter0 = 0;
-    scounter1 = 0;
-    scounter2 = 0;
-    scounter3 = 0;
+    
+    for(int i = 0; i < 4; i++) {
+        //Read the edge counter into the output register
+        scount[i] = scounter[i];
+        //Reset the edge counter
+        scounter[i] = 0;
+        // calculate the frequency
+        sfreq[i] = (scount[i]*1000)/SW_PERIOD;
+        // check if buttons are pressed
+        if((sfreq[i] < THOLD_ON) && (son[i]==0)) {
+            son[i] = 1;
+        } else {
+            son[i] = 0;
+        }
+    }
+    
     //Trigger a display update in the main loop
     update = 1;
 }
-
