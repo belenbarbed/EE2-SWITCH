@@ -34,8 +34,8 @@ AnalogOut DAC(AOUT_PIN);
 volatile int sin_count = 0;
 float sine_wave[128];
 
-//volatile int tri_count = 0;
-//float tri_wave[128];
+volatile int tri_count = 0;
+float tri_wave[128];
 
 // an SPI sub-class that sets up format and clock speed
 class SPIPreInit : public SPI
@@ -60,7 +60,7 @@ void tout();
 void sine_interrupt(void);
 
 // Interrupt service for triangle wave outputting
-//void tri_interrupt();
+void tri_interrupt(void);
 
 // Print UI
 void printUI(Adafruit_SSD1306_Spi& gOled, volatile uint8_t state[4]);
@@ -84,7 +84,7 @@ Ticker swtimer;
 Ticker sine_ticker;
 
 // triangle wave timer
-//Ticker tri_ticker;
+Ticker tri_ticker;
 
 // Registers for the switch counter, switch counter latch register and update flag
 volatile uint16_t scounter[4] = {0};
@@ -94,8 +94,7 @@ volatile bool son[4] = {0};
 volatile uint8_t sstate[4] = {0};         // states = 0 (off), 1 (on), 2 (off - on)
 
 // UI Section
-volatile uint16_t update = 0;
-volatile uint8_t ustate = 0;
+volatile uint16_t update = 1;
 
 volatile int8_t wtype = 0;               // 0 is square, 1 is sine, 2 is triangle 
 volatile int8_t ctype = 0;
@@ -135,9 +134,9 @@ int main() {
     }
     
     // TODO: Precalculate triangle wave values
-    //for(int i = 0; i < 128; i++) {
-    //    tri_wave[i]=((1.0 + sin((float(i)/128.0*6.28318530717959)))/2.0);
-    //}
+    for(int i = 0; i < 128; i++) {
+        tri_wave[i]=((1.0 + sin((float(i)/128.0*6.28318530717959)))/2.0);
+    }
     
     // Attach switch oscillator counter ISR to the switch input instance for a rising edge
     swin0.rise(&sedge0);
@@ -354,12 +353,12 @@ void sine_interrupt(void) {
     sin_count = (sin_count+1) & 0x07F;
 }
 
-//void tri_interrupt() {
-//    // send next analog sample out to D to A
-//    DAC = tri_wave[tri_count];
-//    // increment pointer and wrap around back to 0 at 128
-//    tri_count = (tri_count + 1) & 0x07F;
-//}
+void tri_interrupt(void) {
+    // send next analog sample out to D to A
+    DAC = tri_wave[tri_count];
+    // increment pointer and wrap around back to 0 at 128
+    tri_count = (tri_count + 1) & 0x07F;
+}
 
 uint32_t power(uint32_t base, uint8_t exp){
     
