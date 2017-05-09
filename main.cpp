@@ -30,10 +30,12 @@ PwmOut pout(OUT_PIN);
 
 // sine wave and triangle wave outputs through DAC
 AnalogOut DAC(AOUT_PIN);
+
 volatile int sin_count = 0;
 float sine_wave[128];
-volatile int tri_count = 0;
-float tri_wave[128];
+
+//volatile int tri_count = 0;
+//float tri_wave[128];
 
 // an SPI sub-class that sets up format and clock speed
 class SPIPreInit : public SPI
@@ -55,10 +57,10 @@ void sedge3();
 void tout();
 
 // Interrupt service for sine outputting
-void sine_interrupt();
+void sine_interrupt(void);
 
 // Interrupt service for triangle wave outputting
-void tri_interrupt();
+//void tri_interrupt();
 
 // Print UI
 void printUI(Adafruit_SSD1306_Spi& gOled, volatile uint8_t state[4]);
@@ -82,7 +84,7 @@ Ticker swtimer;
 Ticker sine_ticker;
 
 // triangle wave timer
-Ticker tri_ticker;
+//Ticker tri_ticker;
 
 // Registers for the switch counter, switch counter latch register and update flag
 volatile uint16_t scounter[4] = {0};
@@ -133,9 +135,9 @@ int main() {
     }
     
     // TODO: Precalculate triangle wave values
-    for(int i = 0; i < 128; i++) {
-        tri_wave[i]=((1.0 + sin((float(i)/128.0*6.28318530717959)))/2.0);
-    }
+    //for(int i = 0; i < 128; i++) {
+    //    tri_wave[i]=((1.0 + sin((float(i)/128.0*6.28318530717959)))/2.0);
+    //}
     
     // Attach switch oscillator counter ISR to the switch input instance for a rising edge
     swin0.rise(&sedge0);
@@ -148,12 +150,6 @@ int main() {
     
     // Main loop
     while(1) {
-        //
-        // sinewave output
-        //if (ctype==2){
-//            sin_out(aout, cfreq);
-//        }
-        
         
         // Has the update flag been set?       
         if (update) {
@@ -161,7 +157,7 @@ int main() {
             update = 0;
             
             for (int i = 0; i<4; i++){
-                // set button states
+                // set button states (putting them in tout glitches out)
                 if (sstate[i] == 2) {
                     sstate[i] = 1;
                 } else if ((sstate[i] == 0) && (son[i] == 1)) {
@@ -206,12 +202,17 @@ int main() {
                         pout.period_us(1000000/freq); 
                         pout.write(0.5);
                         
+                        // make sine and triangle go at low freq for interrupt shizzle
+                        sine_ticker.attach(&sine_interrupt, 1.0/(1*128));
+                        
                     } else if (ctype == 1) {
                         // SINE WAVE
-                        sine_ticker.attach(&sine_interrupt, 1/(cfreq*128));
+                        sine_ticker.attach(&sine_interrupt, 1.0/(cfreq*128));
+                        
                     } else if (ctype == 2) {
                         // TRIANGLE WAVE
-                        tri_ticker.attach(&tri_interrupt, 1/(cfreq*128));
+                        //tri_ticker.attach(&tri_interrupt, 1/(cfreq*128));
+                        
                     }
                 }
             }
@@ -331,25 +332,34 @@ void tout() {
         } else if ((son[i]==1) && (sfreq[i] > THOLD_OFF)) {
             son[i] = 0;
         }
+        
+         // set button states
+//        if (sstate[i] == 2) {
+//            sstate[i] = 1;
+//        } else if ((sstate[i] == 0) && (son[i] == 1)) {
+//            sstate[i] = 2;
+//        } else if ((sstate[i] == 1) && (son[i] == 0)) {
+//            sstate[i] = 0;      
+//        }
     }
     
     // Trigger a display update in the main loop
     update = 1;
 }
 
-void sine_interrupt() {
+void sine_interrupt(void) {
     // send next analog sample out to D to A
     DAC = sine_wave[sin_count];
     // increment pointer and wrap around back to 0 at 128
-    sin_count = (sin_count + 1) & 0x07F;
+    sin_count = (sin_count+1) & 0x07F;
 }
 
-void tri_interrupt() {
-    // send next analog sample out to D to A
-    DAC = tri_wave[tri_count];
-    // increment pointer and wrap around back to 0 at 128
-    tri_count = (tri_count + 1) & 0x07F;
-}
+//void tri_interrupt() {
+//    // send next analog sample out to D to A
+//    DAC = tri_wave[tri_count];
+//    // increment pointer and wrap around back to 0 at 128
+//    tri_count = (tri_count + 1) & 0x07F;
+//}
 
 uint32_t power(uint32_t base, uint8_t exp){
     
