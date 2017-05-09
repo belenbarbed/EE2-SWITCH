@@ -20,6 +20,10 @@
 #define D_DC_PIN p8
 #define D_RST_PIN p9
 #define D_CS_PIN p10
+#define OUT_PIN p25
+
+// PWMOUT to LED
+PwmOut pout(OUT_PIN);
 
 // an SPI sub-class that sets up format and clock speed
 class SPIPreInit : public SPI
@@ -92,6 +96,10 @@ int main() {
     // Attach switch sampling timer ISR to the timer instance with the required period
     swtimer.attach_us(&tout, SW_PERIOD);
     
+    // Start out with 100Hz wave
+    pout.period_us(1000000/100); 
+    pout.write(0.5);
+    
     // Write some sample text
     // gOled1.printf("%ux%u OLED Display\r\n", gOled1.width(), gOled1.height());
     
@@ -130,6 +138,18 @@ int main() {
                 }  
             }
             
+            printUI(gOled1, sstate[3]);
+            
+            // SW3 confirms values and makes wave
+            if (sstate[3] == 2) {
+                if (freq != 0){
+                    pout.period_us(1000000/freq); 
+                    pout.write(0.5);
+                }
+                
+            }
+            
+            gOled1.setTextCursor(0,0);
             gOled1.printf("%01u,%01u%01u%01u,%01u%01u%01uHz\n", dcount[6], dcount[5], dcount[4], dcount[3], dcount[2], dcount[1], dcount[0]);
             gOled1.printf("         ");
             switch(digit) {
@@ -139,7 +159,7 @@ int main() {
                 case 3: gOled1.setTextCursor(24,8); break;
                 case 4: gOled1.setTextCursor(18,8); break;
                 case 5: gOled1.setTextCursor(12,8); break;
-                case 6: gOled1.setTextCursor(0,8); break;
+                case 6: gOled1.setTextCursor(0,8);  break;
                 default: gOled1.setTextCursor(48,8); break;
             }
             gOled1.printf("-\n");
@@ -150,7 +170,7 @@ int main() {
             }
             gOled1.printf("%07uHz", freq);
             
-            printUI(gOled1, 0);
+            
             
             // Copy the display buffer to the display
             gOled1.display();
@@ -166,10 +186,10 @@ int main() {
 void printUI(Adafruit_SSD1306_Spi& gOled, uint16_t state){
     gOled.setTextCursor(0,56);
     if (state){
-        gOled.printf(">    ^    CNF    BCK");
+        gOled.printf("^    >              ");
     }
     else {
-        gOled.printf("<    >    SEL");
+        gOled.printf("^    >           CNF");
     }
 }
 
