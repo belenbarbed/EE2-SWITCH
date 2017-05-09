@@ -43,6 +43,9 @@ void tout();
 // Print UI
 void printUI(Adafruit_SSD1306_Spi& gOled, uint16_t state);
 
+// some math 4 u
+uint32_t power(uint32_t base, uint8_t exp);
+
 // Output for the alive LED
 DigitalOut alive(LED1);
 
@@ -67,6 +70,7 @@ volatile uint16_t update = 0;
 volatile uint8_t ustate = 0;
 volatile uint8_t dcount[7] = {0};
 volatile int8_t digit = 6;
+volatile int32_t freq = 0;
 
 // Initialise SPI instance for communication with the display
 SPIPreInit gSpi(D_MOSI_PIN,NC,D_CLK_PIN); //MOSI,MISO,CLK
@@ -138,7 +142,13 @@ int main() {
                 case 6: gOled1.setTextCursor(0,8); break;
                 default: gOled1.setTextCursor(48,8); break;
             }
-            gOled1.printf("-");
+            gOled1.printf("-\n");
+            
+            freq = 0;
+            for (int i = 0; i < 7; i++) {
+                freq += dcount[i]*(power(10, i));
+            }
+            gOled1.printf("%07uHz", freq);
             
             printUI(gOled1, 0);
             
@@ -212,4 +222,15 @@ void tout() {
     
     // Trigger a display update in the main loop
     update = 1;
+}
+
+uint32_t power(uint32_t base, uint8_t exp){
+    
+    uint32_t res = 1;
+    
+    for (int i = 0; i < exp; i ++) {
+        res *= base;
+    }
+    
+    return res;
 }
