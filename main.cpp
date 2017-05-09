@@ -60,8 +60,13 @@ volatile uint16_t scounter[4] = {0};
 volatile uint16_t scount[4] = {0};
 volatile uint16_t sfreq[4] = {0};
 volatile bool son[4] = {0};
+volatile uint8_t sstate[4] = {0};         // states = 0 (off), 1 (on), 2 (off - on)
 
+// UI Section
 volatile uint16_t update = 0;
+volatile uint8_t ustate = 0;
+volatile uint8_t dcount[7] = {0};
+volatile int8_t digit = 6;
 
 // Initialise SPI instance for communication with the display
 SPIPreInit gSpi(D_MOSI_PIN,NC,D_CLK_PIN); //MOSI,MISO,CLK
@@ -87,23 +92,53 @@ int main() {
     // gOled1.printf("%ux%u OLED Display\r\n", gOled1.width(), gOled1.height());
     
     // Main loop
-    while(1)
-    {
+    while(1) {
+        
         // Has the update flag been set?       
         if (update) {
+            
             // Clear the update flag
             update = 0;
             gOled1.setTextCursor(0,0);
             
-            for(int i = 0; i < 4; i++) {
-                // Write the SW0 osciallor count as kHz
-                gOled1.printf("SW%01u: %02ukHz", i, sfreq[i]);
-                if(son[i]){
-                    gOled1.printf(" - ON \n");
-                } else {
-                    gOled1.printf(" - OFF\n");
-                }
+            //for(int i = 0; i < 4; i++) {
+//                // Write the SW0 osciallor count as kHz
+//                gOled1.printf("SW%01u: %02ukHz", i, sfreq[i]);
+//                if(son[i]){
+//                    gOled1.printf(" - ON \n");
+//                } else {
+//                    gOled1.printf(" - OFF\n");
+//                }
+//            }
+            
+            // increment freq digit with SW1
+            if (sstate[0] == 2) {
+                dcount[digit]++;
+                if(dcount[digit] > 9) {
+                     dcount[digit] = 0;
+                }  
             }
+            // move freq digit pointer with SW0
+            if (sstate[1] == 2) {
+                digit--;
+                if(digit < 0) {
+                     digit = 6;
+                }  
+            }
+            
+            gOled1.printf("%01u,%01u%01u%01u,%01u%01u%01uHz\n", dcount[6], dcount[5], dcount[4], dcount[3], dcount[2], dcount[1], dcount[0]);
+            gOled1.printf("         ");
+            switch(digit) {
+                case 0: gOled1.setTextCursor(48,8); break;
+                case 1: gOled1.setTextCursor(42,8); break;
+                case 2: gOled1.setTextCursor(36,8); break;
+                case 3: gOled1.setTextCursor(24,8); break;
+                case 4: gOled1.setTextCursor(18,8); break;
+                case 5: gOled1.setTextCursor(12,8); break;
+                case 6: gOled1.setTextCursor(0,8); break;
+                default: gOled1.setTextCursor(48,8); break;
+            }
+            gOled1.printf("-");
             
             printUI(gOled1, 0);
             
@@ -164,6 +199,14 @@ void tout() {
             son[i] = 1;
         } else if ((son[i]==1) && (sfreq[i] > THOLD_OFF)) {
             son[i] = 0;
+        }
+        // set button states
+        if (sstate[i] == 2) {
+            sstate[i] = 1;
+        } else if ((sstate[i] == 0) && (son[i] == 1)) {
+            sstate[i] = 2;
+        } else if ((sstate[i] == 1) && (son[i] == 0)) {
+            sstate[i] = 0;      
         }
     }
     
