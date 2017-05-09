@@ -22,8 +22,11 @@
 #define D_CS_PIN p10
 #define OUT_PIN p25
 
-// PWMOUT to LED
+// PWMOUT to LED2
 PwmOut pout(OUT_PIN);
+
+// The sinewave is created on this pin
+AnalogOut aout(p18);
 
 // an SPI sub-class that sets up format and clock speed
 class SPIPreInit : public SPI
@@ -45,7 +48,7 @@ void sedge3();
 void tout();
 
 // Print UI
-void printUI(Adafruit_SSD1306_Spi& gOled, uint16_t state);
+void printUI(Adafruit_SSD1306_Spi& gOled, volatile uint8_t state[4]);
 
 // some math 4 u
 uint32_t power(uint32_t base, uint8_t exp);
@@ -72,15 +75,47 @@ volatile uint8_t sstate[4] = {0};         // states = 0 (off), 1 (on), 2 (off - 
 // UI Section
 volatile uint16_t update = 0;
 volatile uint8_t ustate = 0;
-volatile uint8_t dcount[7] = {0};
-volatile int8_t digit = 6;
+
+volatile int8_t wtype = 0;               // 0 is square, 1 is sine, 2 is triangle 
+volatile int8_t ctype = 0;
+
+volatile uint8_t dcount[4] = {0};
+volatile int8_t digit = 3;
+
 volatile int32_t freq = 0;
+volatile int32_t cfreq = 0;
 
 // Initialise SPI instance for communication with the display
 SPIPreInit gSpi(D_MOSI_PIN,NC,D_CLK_PIN); //MOSI,MISO,CLK
 
 // Initialise display driver instance
 Adafruit_SSD1306_Spi gOled1(gSpi,D_DC_PIN,D_RST_PIN,D_CS_PIN,64,128); //SPI,DC,RST,CS,Height,Width
+
+// Sinewave
+void sin_out(AnalogOut aout, uint32_t f){
+    const double pi = 3.141592653589793238462;
+    const double amplitude = f;
+    const double offset = 65535/2;
+    double rads = 0.0;
+    uint16_t sample = 0;
+    
+    for (int i = 0; i < 360; i+=f) {
+        rads = (pi * i) / 180.0f;
+        sample = (uint16_t)(amplitude * (offset * (cos(rads + pi))) + offset);
+        aout.write_u16(sample);
+    }
+}
+    
+            //for(int i = 0; i < 4; i++) {
+//                // Write the SW0 osciallor count as kHz
+//                gOled1.printf("SW%01u: %02ukHz", i, sfreq[i]);
+//                if(son[i]){
+//                    gOled1.printf(" - ON \n");
+//                } else {
+//                    gOled1.printf(" - OFF\n");
+//                }
+//            }
+            
 
 int main() { 
     // Initialisation
@@ -96,81 +131,113 @@ int main() {
     // Attach switch sampling timer ISR to the timer instance with the required period
     swtimer.attach_us(&tout, SW_PERIOD);
     
-    // Start out with 100Hz wave
-    pout.period_us(1000000/100); 
-    pout.write(0.5);
-    
-    // Write some sample text
-    // gOled1.printf("%ux%u OLED Display\r\n", gOled1.width(), gOled1.height());
-    
     // Main loop
     while(1) {
+        //
+        // sinewave output
+        //if (ctype==2){
+//            sin_out(aout, cfreq);
+//        }
+        
         
         // Has the update flag been set?       
         if (update) {
-            
             // Clear the update flag
             update = 0;
-            gOled1.setTextCursor(0,0);
             
-            //for(int i = 0; i < 4; i++) {
-//                // Write the SW0 osciallor count as kHz
-//                gOled1.printf("SW%01u: %02ukHz", i, sfreq[i]);
-//                if(son[i]){
-//                    gOled1.printf(" - ON \n");
-//                } else {
-//                    gOled1.printf(" - OFF\n");
-//                }
-//            }
+            for (int i = 0; i<4; i++){
+                // set button states
+                if (sstate[i] == 2) {
+                    sstate[i] = 1;
+                } else if ((sstate[i] == 0) && (son[i] == 1)) {
+                    sstate[i] = 2;
+                } else if ((sstate[i] == 1) && (son[i] == 0)) {
+                    sstate[i] = 0;      
+                }
+            }
             
-            // increment freq digit with SW1
+            // increment freq digit with SW0
             if (sstate[0] == 2) {
                 dcount[digit]++;
                 if(dcount[digit] > 9) {
                      dcount[digit] = 0;
-                }  
+                }
             }
-            // move freq digit pointer with SW0
-            if (sstate[1] == 2) {
+            
+            // move freq digit pointer with SW1
+            else if (sstate[1] == 2) {
                 digit--;
                 if(digit < 0) {
-                     digit = 6;
+                     digit = 3;
                 }  
             }
             
-            printUI(gOled1, sstate[3]);
+            // select type of wave with SW2
+            else if (sstate[2] == 2) {
+                wtype++;
+                if (wtype > 2) {
+                    wtype = 0;
+                }     
+            }
             
             // SW3 confirms values and makes wave
-            if (sstate[3] == 2) {
+            else if (sstate[3] == 2) {
                 if (freq != 0){
                     pout.period_us(1000000/freq); 
                     pout.write(0.5);
+                    cfreq = freq;
+                    ctype = wtype;
                 }
-                
+            }
+            // calculate the frequency
+            freq = 0;
+            for (int i = 0; i < 4; i++) {
+                freq += dcount[i]*(power(10, i));
             }
             
+            
+            
+            
+            // PRINTING
+            printUI(gOled1, sstate);
+            // Print choice of wave type
             gOled1.setTextCursor(0,0);
-            gOled1.printf("%01u,%01u%01u%01u,%01u%01u%01uHz\n", dcount[6], dcount[5], dcount[4], dcount[3], dcount[2], dcount[1], dcount[0]);
+            gOled1.printf("SQR      SIN      TRI");
+            gOled1.printf("                     ");
+            switch(wtype) {
+                case 0: gOled1.setTextCursor(0,8); break;
+                case 1: gOled1.setTextCursor(54,8); break;
+                case 2: gOled1.setTextCursor(108,8); break; 
+                default: gOled1.setTextCursor(0,8); break;
+            }
+            gOled1.printf("---");
+            
+            // Print choice of digits
+            gOled1.setTextCursor(0,16);
+            gOled1.printf("%01u,%01u%01u%01uHz\n", dcount[3], dcount[2], dcount[1], dcount[0]);
             gOled1.printf("         ");
             switch(digit) {
-                case 0: gOled1.setTextCursor(48,8); break;
-                case 1: gOled1.setTextCursor(42,8); break;
-                case 2: gOled1.setTextCursor(36,8); break;
-                case 3: gOled1.setTextCursor(24,8); break;
-                case 4: gOled1.setTextCursor(18,8); break;
-                case 5: gOled1.setTextCursor(12,8); break;
-                case 6: gOled1.setTextCursor(0,8);  break;
-                default: gOled1.setTextCursor(48,8); break;
+                case 0: gOled1.setTextCursor(24,24); break;
+                case 1: gOled1.setTextCursor(18,24); break;
+                case 2: gOled1.setTextCursor(12,24); break;
+                case 3: gOled1.setTextCursor(0,24);  break;
+                default: gOled1.setTextCursor(48,24); break;
             }
             gOled1.printf("-\n");
             
-            freq = 0;
-            for (int i = 0; i < 7; i++) {
-                freq += dcount[i]*(power(10, i));
+            // Print set values of wave type
+            gOled1.setTextCursor(0,32);
+            gOled1.printf("wave type: ");
+            switch(ctype) {
+                case 0: gOled1.printf("SQR"); break;
+                case 1: gOled1.printf("SIN"); break;
+                case 2: gOled1.printf("TRI"); break; 
+                default: gOled1.printf("SQR"); break;
             }
-            gOled1.printf("%07uHz", freq);
             
-            
+            // Print set values of frequency and
+            gOled1.setTextCursor(0,40);
+            gOled1.printf("frequency: %04uHz", cfreq);
             
             // Copy the display buffer to the display
             gOled1.display();
@@ -183,14 +250,24 @@ int main() {
     }
 }
 
-void printUI(Adafruit_SSD1306_Spi& gOled, uint16_t state){
+void printUI(Adafruit_SSD1306_Spi& gOled, volatile uint8_t state[4]){
     gOled.setTextCursor(0,56);
-    if (state){
-        gOled.printf("^    >              ");
+    if (state[3]){
+        gOled.printf("^(f)  >(f)  >(t)     ");
+    }
+    else if (state[2]){
+        gOled.printf("^(f)  >(f)        CNF");
+    }
+    else if (state[1]){
+        gOled.printf("^(f)        >(t)  CNF");
+    }
+    else if (state[0]){
+        gOled.printf("      >(f)  >(t)  CNF");
     }
     else {
-        gOled.printf("^    >           CNF");
+        gOled.printf("^(f)  >(f)  >(t)  CNF");
     }
+    gOled.printf("^(f)  >(f)  >(t)  CNF");
 }
 
 // Interrupt Service Routine for rising edge on the switch oscillator input
@@ -229,14 +306,6 @@ void tout() {
             son[i] = 1;
         } else if ((son[i]==1) && (sfreq[i] > THOLD_OFF)) {
             son[i] = 0;
-        }
-        // set button states
-        if (sstate[i] == 2) {
-            sstate[i] = 1;
-        } else if ((sstate[i] == 0) && (son[i] == 1)) {
-            sstate[i] = 2;
-        } else if ((sstate[i] == 1) && (son[i] == 0)) {
-            sstate[i] = 0;      
         }
     }
     
