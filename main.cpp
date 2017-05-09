@@ -20,13 +20,20 @@
 #define D_DC_PIN p8
 #define D_RST_PIN p9
 #define D_CS_PIN p10
+
+// Wave output pins
 #define OUT_PIN p25
+#define AOUT_PIN p18
 
 // PWMOUT to LED2
 PwmOut pout(OUT_PIN);
 
-// The sinewave is created on this pin
-AnalogOut aout(p18);
+// sine wave and triangle wave outputs through DAC
+AnalogOut DAC(AOUT_PIN);
+volatile int sin_count = 0;
+float sine_wave[128];
+volatile int tri_count = 0;
+float tri_wave[128];
 
 // an SPI sub-class that sets up format and clock speed
 class SPIPreInit : public SPI
@@ -47,6 +54,12 @@ void sedge3();
 
 void tout();
 
+// Interrupt service for sine outputting
+void sine_interrupt();
+
+// Interrupt service for triangle wave outputting
+void tri_interrupt();
+
 // Print UI
 void printUI(Adafruit_SSD1306_Spi& gOled, volatile uint8_t state[4]);
 
@@ -64,6 +77,12 @@ InterruptIn swin3(SW_PIN3);
 
 // Switch sampling timer
 Ticker swtimer;
+
+// Sine wave timer
+Ticker sine_ticker;
+
+// triangle wave timer
+Ticker tri_ticker;
 
 // Registers for the switch counter, switch counter latch register and update flag
 volatile uint16_t scounter[4] = {0};
@@ -91,36 +110,32 @@ SPIPreInit gSpi(D_MOSI_PIN,NC,D_CLK_PIN); //MOSI,MISO,CLK
 // Initialise display driver instance
 Adafruit_SSD1306_Spi gOled1(gSpi,D_DC_PIN,D_RST_PIN,D_CS_PIN,64,128); //SPI,DC,RST,CS,Height,Width
 
-// Sinewave
-void sin_out(AnalogOut aout, uint32_t f){
-    const double pi = 3.141592653589793238462;
-    const double amplitude = f;
-    const double offset = 65535/2;
-    double rads = 0.0;
-    uint16_t sample = 0;
-    
-    for (int i = 0; i < 360; i+=f) {
-        rads = (pi * i) / 180.0f;
-        sample = (uint16_t)(amplitude * (offset * (cos(rads + pi))) + offset);
-        aout.write_u16(sample);
-    }
-}
-    
-            //for(int i = 0; i < 4; i++) {
-//                // Write the SW0 osciallor count as kHz
-//                gOled1.printf("SW%01u: %02ukHz", i, sfreq[i]);
-//                if(son[i]){
-//                    gOled1.printf(" - ON \n");
-//                } else {
-//                    gOled1.printf(" - OFF\n");
-//                }
-//            }
+// DEBUGGING 
+//for(int i = 0; i < 4; i++) {
+//    // Write the SW0 osciallor count as kHz
+//    gOled1.printf("SW%01u: %02ukHz", i, sfreq[i]);
+//    if(son[i]){
+//        gOled1.printf(" - ON \n");
+//    } else {
+//        gOled1.printf(" - OFF\n");
+//    }
+//}
             
 
 int main() { 
     // Initialisation
     gOled1.setRotation(2); //Set display rotation
     gOled1.clearDisplay();
+    
+    // Precalculate sine wave values
+    for(int i = 0; i < 128; i++) {
+        sine_wave[i]=((1.0 + sin((float(i)/128.0*6.28318530717959)))/2.0);
+    }
+    
+    // TODO: Precalculate triangle wave values
+    for(int i = 0; i < 128; i++) {
+        tri_wave[i]=((1.0 + sin((float(i)/128.0*6.28318530717959)))/2.0);
+    }
     
     // Attach switch oscillator counter ISR to the switch input instance for a rising edge
     swin0.rise(&sedge0);
@@ -182,21 +197,30 @@ int main() {
             
             // SW3 confirms values and makes wave
             else if (sstate[3] == 2) {
-                if (freq != 0){
-                    pout.period_us(1000000/freq); 
-                    pout.write(0.5);
-                    cfreq = freq;
-                    ctype = wtype;
+                cfreq = freq;
+                ctype = wtype;
+                
+                if (cfreq != 0) {
+                    if (ctype == 0){
+                        // SQUARE WAVE
+                        pout.period_us(1000000/freq); 
+                        pout.write(0.5);
+                        
+                    } else if (ctype == 1) {
+                        // SINE WAVE
+                        sine_ticker.attach(&sine_interrupt, 1/(cfreq*128));
+                    } else if (ctype == 2) {
+                        // TRIANGLE WAVE
+                        tri_ticker.attach(&tri_interrupt, 1/(cfreq*128));
+                    }
                 }
             }
+            
             // calculate the frequency
             freq = 0;
             for (int i = 0; i < 4; i++) {
                 freq += dcount[i]*(power(10, i));
             }
-            
-            
-            
             
             // PRINTING
             printUI(gOled1, sstate);
@@ -311,6 +335,20 @@ void tout() {
     
     // Trigger a display update in the main loop
     update = 1;
+}
+
+void sine_interrupt() {
+    // send next analog sample out to D to A
+    DAC = sine_wave[sin_count];
+    // increment pointer and wrap around back to 0 at 128
+    sin_count = (sin_count + 1) & 0x07F;
+}
+
+void tri_interrupt() {
+    // send next analog sample out to D to A
+    DAC = tri_wave[tri_count];
+    // increment pointer and wrap around back to 0 at 128
+    tri_count = (tri_count + 1) & 0x07F;
 }
 
 uint32_t power(uint32_t base, uint8_t exp){
