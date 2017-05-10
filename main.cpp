@@ -25,6 +25,9 @@
 #define OUT_PIN p25
 #define AOUT_PIN p18
 
+// sine wave generation
+#define SIN_SIZE 64
+
 // PWMOUT to LED2
 PwmOut pout(OUT_PIN);
 
@@ -32,10 +35,10 @@ PwmOut pout(OUT_PIN);
 AnalogOut DAC(AOUT_PIN);
 
 volatile int sin_count = 0;
-float sine_wave[128];
+float sine_wave[SIN_SIZE];
 
 volatile int tri_count = 0;
-float tri_wave[128];
+float tri_wave[SIN_SIZE];
 
 // an SPI sub-class that sets up format and clock speed
 class SPIPreInit : public SPI
@@ -129,15 +132,21 @@ int main() {
     gOled1.clearDisplay();
     
     // Precalculate sine wave values
-    for(int i = 0; i < 128; i++) {
-        sine_wave[i]=((1.0 + sin((float(i)/128.0*6.28318530717959)))/2.0);
+    for(int i = 0; i < SIN_SIZE; i++) {
+        sine_wave[i] = ((1.0 + sin((float(i)/float(SIN_SIZE)*6.28318530717959)))/2.0);
     }
     
-    // TODO: Precalculate triangle wave values
-    for(int i = 0; i < 128; i++) {
-        tri_wave[i]=((1.0 + sin((float(i)/128.0*6.28318530717959)))/2.0);
+    // Precalculate triangle wave values
+    float k = 2.0/float(SIN_SIZE);
+    for(int i = 0; i < SIN_SIZE; i++) {
+        if (i < SIN_SIZE/4) {
+            tri_wave[i] = k*float(i) + 0.5;
+        } else if (i < 3*SIN_SIZE/4) {
+            tri_wave[i] = 1.5 - k*float(i);
+        } else {
+            tri_wave[i] = k*float(i) - 1.5;
+        }
     }
-    
     // Attach switch oscillator counter ISR to the switch input instance for a rising edge
     swin0.rise(&sedge0);
     swin1.rise(&sedge1);
@@ -152,19 +161,12 @@ int main() {
         
         // Has the update flag been set?       
         if (update) {
+            
+            // disable interrupts
+            //__disable_irq();
+            
             // Clear the update flag
             update = 0;
-            
-            for (int i = 0; i<4; i++){
-                // set button states (putting them in tout glitches out)
-                if (sstate[i] == 2) {
-                    sstate[i] = 1;
-                } else if ((sstate[i] == 0) && (son[i] == 1)) {
-                    sstate[i] = 2;
-                } else if ((sstate[i] == 1) && (son[i] == 0)) {
-                    sstate[i] = 0;      
-                }
-            }
             
             // increment freq digit with SW0
             if (sstate[0] == 2) {
@@ -202,15 +204,20 @@ int main() {
                         pout.write(0.5);
                         
                         // make sine and triangle go at low freq for interrupt shizzle
-                        sine_ticker.attach(&sine_interrupt, 1.0/(1*128));
+                        sine_ticker.detach();
+                        tri_ticker.detach();
                         
                     } else if (ctype == 1) {
                         // SINE WAVE
-                        sine_ticker.attach(&sine_interrupt, 1.0/(cfreq*128));
+                        tri_ticker.detach();
+                        pout.write(0.0);
+                        sine_ticker.attach(&sine_interrupt, 1.0/(cfreq*SIN_SIZE));
                         
                     } else if (ctype == 2) {
                         // TRIANGLE WAVE
-                        //tri_ticker.attach(&tri_interrupt, 1/(cfreq*128));
+                        sine_ticker.detach();
+                        pout.write(0.0);
+                        tri_ticker.attach(&tri_interrupt, 1.0/(cfreq*SIN_SIZE));
                         
                     }
                 }
@@ -226,8 +233,7 @@ int main() {
             printUI(gOled1, sstate);
             // Print choice of wave type
             gOled1.setTextCursor(0,0);
-            gOled1.printf("SQR      SIN      TRI");
-            gOled1.printf("                     ");
+            gOled1.printf("SQR      SIN      TRI                     ");
             switch(wtype) {
                 case 0: gOled1.setTextCursor(0,8); break;
                 case 1: gOled1.setTextCursor(54,8); break;
@@ -238,8 +244,7 @@ int main() {
             
             // Print choice of digits
             gOled1.setTextCursor(0,16);
-            gOled1.printf("%01u,%01u%01u%01uHz\n", dcount[3], dcount[2], dcount[1], dcount[0]);
-            gOled1.printf("         ");
+            gOled1.printf("%01u,%01u%01u%01uHz\n         ", dcount[3], dcount[2], dcount[1], dcount[0]);
             switch(digit) {
                 case 0: gOled1.setTextCursor(24,24); break;
                 case 1: gOled1.setTextCursor(18,24); break;
@@ -265,9 +270,13 @@ int main() {
             
             // Copy the display buffer to the display
             gOled1.display();
+            wait_ms(50);
+            gOled1.setTextCursor(0,56);
+            gOled1.printf("^(f)  >(f)  >(t)  CNF");
+            gOled1.display();
             
-            // Toggle the alive LED
-            alive = !alive;
+            // ensable interrupts
+            //__enable_irq();
         }
         
         
@@ -291,7 +300,7 @@ void printUI(Adafruit_SSD1306_Spi& gOled, volatile uint8_t state[4]){
     else {
         gOled.printf("^(f)  >(f)  >(t)  CNF");
     }
-    gOled.printf("^(f)  >(f)  >(t)  CNF");
+    
 }
 
 // Interrupt Service Routine for rising edge on the switch oscillator input
@@ -332,32 +341,33 @@ void tout() {
             son[i] = 0;
         }
         
-         // set button states
-//        if (sstate[i] == 2) {
-//            sstate[i] = 1;
-//        } else if ((sstate[i] == 0) && (son[i] == 1)) {
-//            sstate[i] = 2;
-//        } else if ((sstate[i] == 1) && (son[i] == 0)) {
-//            sstate[i] = 0;      
-//        }
+        // set button states
+        if (sstate[i] == 2) {
+            sstate[i] = 1;
+        } else if ((sstate[i] == 0) && (son[i] == 1)) {
+            sstate[i] = 2;
+            update = 1;
+        } else if ((sstate[i] == 1) && (son[i] == 0)) {
+            sstate[i] = 0;      
+        }
     }
     
     // Trigger a display update in the main loop
-    update = 1;
+    //update = 1;
 }
 
 void sine_interrupt(void) {
     // send next analog sample out to D to A
     DAC = sine_wave[sin_count];
     // increment pointer and wrap around back to 0 at 128
-    sin_count = (sin_count+1) & 0x07F;
+    sin_count = (sin_count+1) & (SIN_SIZE - 1);
 }
 
 void tri_interrupt(void) {
     // send next analog sample out to D to A
     DAC = tri_wave[tri_count];
     // increment pointer and wrap around back to 0 at 128
-    tri_count = (tri_count + 1) & 0x07F;
+    tri_count = (tri_count + 1) & (SIN_SIZE - 1);
 }
 
 uint32_t power(uint32_t base, uint8_t exp){
